@@ -1,0 +1,146 @@
+
+<style>*{box-sizing:border-box;margin:0;padding:0;}body{background:#fff;font-family:system-ui,-apple-system,sans-serif;}</style>
+
+<div style="width:100%;height:62vh;min-height:320px;position:relative;border-radius:12px;overflow:hidden;margin-bottom:12px;background:#fff;border:1.5px solid #e8e8e8;">
+  <canvas id="cv" style="position:absolute;top:0;left:0;width:100%;height:100%;display:block;"></canvas>
+</div>
+
+<div id="fml" style="font-size:13px;padding:10px 16px;border-radius:20px;background:#f5f5f5;border:1.5px solid #d0d0d0;color:#2c2c2a;margin:0 0 10px;font-family:ui-monospace,monospace;line-height:1.8;display:block;width:100%;">
+  f(x − vt) = A · sin(k · (x − vt)) &nbsp;|&nbsp; profil translaté de vt
+</div>
+
+<div style="display:flex;align-items:center;gap:12px;margin:6px 0;">
+  <span style="min-width:120px;font-size:13px;font-weight:500;color:#2c2c2a;background:#f5f5f5;border:1.5px solid #d0d0d0;border-radius:20px;padding:6px 16px;white-space:nowrap;">Forme d'onde</span>
+  <select id="shape" style="flex:1;padding:7px 14px;border-radius:20px;border:1.5px solid #d0d0d0;background:#f5f5f5;font-size:13px;color:#2c2c2a;">
+    <option value="sin">sinusoïde</option>
+    <option value="gauss" selected>paquet gaussien</option>
+    <option value="tri">triangulaire</option>
+    <option value="rect">rectangulaire</option>
+  </select>
+</div>
+<div style="display:flex;align-items:center;gap:12px;margin:6px 0;">
+  <span style="min-width:120px;font-size:13px;font-weight:500;color:#2c2c2a;background:#f5f5f5;border:1.5px solid #d0d0d0;border-radius:20px;padding:6px 16px;white-space:nowrap;">Vitesse v</span>
+  <input type="range" id="vel" min="0" max="5" value="1.5" step="0.5" style="flex:1;accent-color:#378ADD;">
+  <span id="velv" style="min-width:52px;text-align:center;font-size:13px;font-weight:500;color:#2c2c2a;background:#f5f5f5;border:1.5px solid #d0d0d0;border-radius:20px;padding:6px 12px;">1.5</span>
+</div>
+<div style="display:flex;align-items:center;gap:12px;margin:6px 0;">
+  <span style="min-width:120px;font-size:13px;font-weight:500;color:#2c2c2a;background:#f5f5f5;border:1.5px solid #d0d0d0;border-radius:20px;padding:6px 16px;white-space:nowrap;">Temps t</span>
+  <input type="range" id="tsl" min="0" max="400" value="0" step="1" style="flex:1;accent-color:#378ADD;">
+  <span id="tslv" style="min-width:52px;text-align:center;font-size:13px;font-weight:500;color:#2c2c2a;background:#f5f5f5;border:1.5px solid #d0d0d0;border-radius:20px;padding:6px 12px;">0</span>
+</div>
+
+<div style="display:flex;gap:8px;margin:12px 0 4px;flex-wrap:wrap;">
+  <button id="btn-p" onclick="togglePlay()" style="padding:8px 20px;border-radius:20px;font-size:13px;font-weight:500;cursor:pointer;border:1.5px solid #185fa5;background:#e6f1fb;color:#185fa5;">Jouer</button>
+  <button onclick="document.getElementById('tsl').value=0;tMan=0;sync();" style="padding:8px 20px;border-radius:20px;font-size:13px;font-weight:500;cursor:pointer;border:1.5px solid #d0d0d0;background:#ffffff;color:#2c2c2a;">Réinitialiser t</button>
+</div>
+
+<script>
+const cv=document.getElementById('cv');
+let playing=false,animT=0,tMan=0,lastTs=null,raf;
+
+document.getElementById('vel').addEventListener('input',()=>{document.getElementById('velv').textContent=document.getElementById('vel').value;sync();});
+document.getElementById('tsl').addEventListener('input',()=>{tMan=parseFloat(document.getElementById('tsl').value);document.getElementById('tslv').textContent=Math.round(tMan);draw(tMan);});
+document.getElementById('shape').addEventListener('change',()=>sync());
+
+function sync(){draw(playing?animT:tMan);}
+
+function togglePlay(){
+  playing=!playing;
+  const b=document.getElementById('btn-p');
+  if(playing){
+    b.textContent='Pause';
+    b.style.cssText='padding:8px 20px;border-radius:20px;font-size:13px;font-weight:500;cursor:pointer;border:1.5px solid #f09595;background:#fcebeb;color:#a32d2d;';
+    lastTs=null;animT=tMan;loop();
+  } else {
+    b.textContent='Jouer';
+    b.style.cssText='padding:8px 20px;border-radius:20px;font-size:13px;font-weight:500;cursor:pointer;border:1.5px solid #185fa5;background:#e6f1fb;color:#185fa5;';
+    tMan=animT;cancelAnimationFrame(raf);
+  }
+}
+
+function waveFunc(u,shape,A,k){
+  switch(shape){
+    case'sin': return A*Math.sin(k*u);
+    case'gauss': return A*Math.exp(-(u*u)/(55*55))*Math.sin(k*u);
+    case'tri':{const T=2*Math.PI/k;const m=((u%T)+T)%T;const x=m/T;return A*(x<.5?4*x-1:3-4*x);}
+    case'rect':{const T=2*Math.PI/k;const m=((u%T)+T)%T;return A*(m<T/2?.88:-.88);}
+  }return 0;
+}
+
+function draw(t){
+  const rect=cv.parentElement.getBoundingClientRect();
+  const W=Math.round(rect.width)||700;
+  const H=cv.parentElement.offsetHeight||320;
+  cv.width=W; cv.height=H;
+
+  const v=parseFloat(document.getElementById('vel').value);
+  const k=2*0.025*Math.PI;
+  const A=Math.min(H*0.32, 80);
+  const shape=document.getElementById('shape').value;
+  const cy=H/2;
+  const sc=W/500;
+  const ctx=cv.getContext('2d');
+
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,H);
+
+  // axe horizontal
+  ctx.strokeStyle='rgba(0,0,0,0.08)'; ctx.lineWidth=0.8; ctx.setLineDash([3,8]);
+  ctx.beginPath(); ctx.moveTo(0,cy); ctx.lineTo(W,cy); ctx.stroke(); ctx.setLineDash([]);
+
+  // f(x,0) tiretée bleue
+  ctx.beginPath(); ctx.strokeStyle='#378ADD66'; ctx.lineWidth=1.5; ctx.setLineDash([5,5]);
+  for(let px=0;px<=W;px++){const u=(px-W/2)/sc; const y=cy-waveFunc(u,shape,A,k); px===0?ctx.moveTo(px,y):ctx.lineTo(px,y);}
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // f(x-vt) profil décalé orange
+  ctx.beginPath(); ctx.strokeStyle='#D85A30'; ctx.lineWidth=2.5;
+  for(let px=0;px<=W;px++){const u=(px-W/2)/sc - v*t*0.03; const y=cy-waveFunc(u,shape,A,k); px===0?ctx.moveTo(px,y):ctx.lineTo(px,y);}
+  ctx.stroke();
+
+  // flèche vt
+  const shift=v*t*0.03*sc;
+  if(Math.abs(shift)>4){
+    const ay=cy-A-36;
+    const x0=W/2, x1=W/2+shift;
+    ctx.beginPath(); ctx.strokeStyle='#1D9E75'; ctx.lineWidth=1.8;
+    ctx.moveTo(x0,ay); ctx.lineTo(x1,ay); ctx.stroke();
+    const d=shift>0?1:-1;
+    ctx.beginPath(); ctx.fillStyle='#1D9E75';
+    ctx.moveTo(x1+d*8,ay); ctx.lineTo(x1-d*4,ay-5); ctx.lineTo(x1-d*4,ay+5); ctx.closePath(); ctx.fill();
+    // ligne verticale tiretée depuis x0 et x1
+    ctx.strokeStyle='#1D9E7555'; ctx.lineWidth=0.8; ctx.setLineDash([2,4]);
+    ctx.beginPath(); ctx.moveTo(x0,ay+8); ctx.lineTo(x0,cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x1,ay+8); ctx.lineTo(x1,cy); ctx.stroke();
+    ctx.setLineDash([]);
+    // label vt
+    ctx.fillStyle='#1D9E75'; ctx.font='500 12px system-ui'; ctx.textAlign='center';
+    ctx.fillText('vt = '+(v*t*0.03).toFixed(2), (x0+x1)/2, ay-10);
+  }
+
+  // labels dans le canvas — bien écartés verticalement
+  const labelY0 = cy - A - 60;   // f(x,0) au dessus
+  const labelYt = labelY0 - 22;  // f(x−vt) encore au dessus
+
+  ctx.font='500 13px system-ui'; ctx.textAlign='left';
+  ctx.fillStyle='#D85A30';
+  ctx.fillText('f(x−vt)', 14, labelYt);
+  ctx.fillStyle='#378ADD99';
+  ctx.fillText('f(x, 0)', 14, labelY0);
+}
+
+function loop(ts){
+  if(!playing) return;
+  if(!lastTs) lastTs=ts;
+  // vitesse d'écoulement du temps augmentée (×1.5)
+  const dt=(ts-lastTs)/16*1.5;
+  lastTs=ts;
+  animT+=dt;
+  if(animT>400) animT=0;
+  document.getElementById('tsl').value=animT;
+  document.getElementById('tslv').textContent=Math.round(animT);
+  draw(animT);
+  raf=requestAnimationFrame(loop);
+}
+
+draw(0);
+</script>
